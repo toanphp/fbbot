@@ -10,8 +10,12 @@
   },
   "dependencies": {
     "body-parser": "^1.15.1",
+    "cld": "^2.4.7",
     "express": "~3.2.4",
+    "form-data": "^2.3.1",
+    "languagedetect": "^1.1.1",
     "morgan": "^1.7.0",
+    "mysql": "^2.14.1",
     "request": "^2.72.0"
   }
 }
