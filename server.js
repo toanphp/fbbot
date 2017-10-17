@@ -24,27 +24,7 @@ var server = http.createServer(app);
 // var request = require("request");
 
 
-
-/**
- * tự động nhắc khách khi chưa đặt lịch xong mà ko thấy chat trong 15p = 900000 mili giây
- * tự động xóa khách đã chat quá 1 ngày = 86400000 mili giây
- */
-customersLog.cronJob(900000, 86400000, function(id){
-  var cancellationButtons = [
-    {
-      "type":"postback",
-      "title":"Tiếp",
-      "payload":"DATLICHKHAM_KHONGHUY"
-    },
-    {
-      "type":"postback",
-      "title":"Ếu",
-      "payload":"DATLICHKHAM_HUY"
-    }
-  ];
-  send.sendButton(id, "Bạn chưa đặt xong lịch khám. Bạn có muốn đặt lịch tiếp không?", cancellationButtons);
-});
-
+// test
 app.get('/', function(req, res) {
   res.send("Home page. Server running okay.1313213");
 });
@@ -56,6 +36,32 @@ app.get('/webhook', function(req, res) {
   }
   res.send('Error, wrong validation token');
 });
+
+
+
+/**
+ * tự động nhắc khách khi chưa đặt lịch xong mà ko thấy chat trong 15p = 900000 mili giây
+ * tự động xóa khách đã chat quá 1 ngày = 86400000 mili giây
+ * 
+ * cronJob = function(remindTime, deleteTime, callback=function(){})
+ */
+customersLog.cronJob(900000, 86400000, function(id){
+  var cancellationButtons = [
+    {
+      "type":"postback",
+      "title":"Tiếp",
+      "payload":"DATLICHKHAM_TIEPTUC"
+    },
+    {
+      "type":"postback",
+      "title":"Ếu",
+      "payload":"DATLICHKHAM_HUY"
+    }
+  ];
+  send.sendButton(id, "Bạn chưa đặt xong lịch khám. Bạn có muốn đặt lịch tiếp không?", cancellationButtons);
+});
+
+
 
 // Xử lý khi có người nhắn tin cho bot
 app.post('/webhook', async function(req, res) {
@@ -69,6 +75,8 @@ app.post('/webhook', async function(req, res) {
         for (var message of messaging) {
           var senderId = message.sender.id;
           var timestamp = message.timestamp;
+
+          
 
 
           // Welcome
@@ -89,26 +97,43 @@ app.post('/webhook', async function(req, res) {
           });
 
 
+
           if (message.message) {
             
             if (message.message.text) {
               var rawText = message.message.text;
-              logMessage.log(senderId, timestamp, rawText);
-              if(typeof message.message.is_echo == 'undefined') {
+
+              // log tin nhắn vào database
+              await logMessage.log(senderId, timestamp, rawText);
+
+              if(typeof message.message.is_echo == 'undefined') {       // Không phải tin nhắn của trang
                 var text = boVietTat(rawText);
                 var text = text.trim();
                 var textKhongDau = bodauTiengViet(text);
 
+
+                // Lấy dữ liệu về các tin nhắn trước của khách
+                var cuMessages = await logMessage.get(senderId, 100000);
+                console.log("CUMESSSAGEEESSS:", cuMessages);
+
+
+                /**
+                 * HỦY ĐẶT LỊCH
+                 */
+                
+                // từ khóa hủy đặt lịch
                 var cancellationKW = [
                   ["huy", "lich"],
                   ["khong muon ", "lich nua"],
                   ["thoi", "cam on"]
                 ];
 
-                // Kiểm tra tin nhắn có chứa các từ trong "bookingKW"
-                var cancellationStatus= checkMessage(textKhongDau, cancellationKW);  
+                // Kiểm tra từ khóa trong tin nhắn
+                var cancellationStatus= await checkMessage(textKhongDau, cancellationKW);  
 
                 if(cancellationStatus==true && typeof customersLog.getInfo(senderId).datlich != "undefined") {
+
+                  // Nút hủy đặt lịch
                   var cancellationButtons = [
                     {
                       "type":"postback",
@@ -118,48 +143,58 @@ app.post('/webhook', async function(req, res) {
                     {
                       "type":"postback",
                       "title":"Không",
-                      "payload":"DATLICHKHAM_KHONGHUY"
+                      "payload":"DATLICHKHAM_TIEPTUC"
                     }
                   ];
                   send.sendButton(senderId, "Có phải bạn muốn hủy đặt lịch không?", cancellationButtons);
+
                 } else {
 
 
-                  
-                  // Đổi lại thông tin
+                  /**
+                   * ĐỔI LẠI THÔNG TIN 
+                   */
+
+                  // Từ khóa
                   var changingNameKW = [
-                    ["doi lai ten"]
+                    ["doi ten"]
                   ];
                   var changingPlaceKW = [
-                    ["doi lai dia diem"]
+                    ["doi dia diem"]
                   ];
                   var changingDateKW = [
-                    ["doi lai ngay"]
+                    ["doi ngay"]
                   ];
                   var changingTimeKW = [
-                    ["doi lai thoi gian"]
+                    ["doi thoi gian"]
                   ];
 
+                  // Kiểm tra từ khóa trong tin nhắn
                   var changingName = checkMessage(textKhongDau, changingNameKW); 
                   var changingPlace = checkMessage(textKhongDau, changingPlaceKW); 
                   var changingDate = checkMessage(textKhongDau, changingDateKW); 
                   var changingTime = checkMessage(textKhongDau, changingTimeKW); 
 
                   if(changingName == true && typeof customersLog.getInfo(senderId).datlich.name!= 'undefined'
-                        && customersLog.getInfo(senderId).datlich.name!= '') {
-                      customersLog.del(senderId, "name");
+                      && customersLog.getInfo(senderId).datlich.name!= '') {
+                    customersLog.del(senderId, "name");
                     } 
                   if(changingPlace == true && typeof customersLog.getInfo(senderId).datlich.place!= 'undefined'
                       && customersLog.getInfo(senderId).datlich.place!= '') {
                     customersLog.del(senderId, "place");
+                    customersLog.del(senderId, "time");
+                    customersLog.del(senderId, "dentist");
                   } 
                   if(changingDate == true && typeof customersLog.getInfo(senderId).datlich.date!= 'undefined'
                       && customersLog.getInfo(senderId).datlich.date!= '') {
                     customersLog.del(senderId, "date");
+                    customersLog.del(senderId, "time");
+                    customersLog.del(senderId, "dentist");
                   } 
                   if(changingTime == true && typeof customersLog.getInfo(senderId).datlich.time!= 'undefined'
                       && customersLog.getInfo(senderId).datlich.time!= '') {
                     customersLog.del(senderId, "time");
+                    customersLog.del(senderId, "dentist");
                   } 
 
 
@@ -188,101 +223,35 @@ app.post('/webhook', async function(req, res) {
 
 
 
+                  
 
 
-
-
-                  // thời gian khám (hỏi)
-                  await customersLog.taoLichKham(senderId, "duration", function(status) {
-
-                    console.log("THOI GIAN KHAM");
-                    
-                    if(status==true) {
-
-                      // Triệu chứng
-                      var layCaoRangKW = [
-                        ["chảy máu"],
-                        ["mảng bám"],
-                        ["lấy cao"]
-                      ];
-
-                      var hanRangKW = [
-                        ["hàn", "răng"]
-                      ];
-                      var sauRangKW = [
-                        ["có mùi"],
-                        ["hôi"]
-                      ];
-                      var koVaoTuyKW = [
-                        ["không buốt"],
-                        ["không bị buốt"],
-                        ["không hề buốt"],
-                        ["không có buốt"],
-                      ];
-
-                      var nhoRangKW = [
-                        ["nhổ răng"]
-                      ];
-                      var implantKW = [
-                        ["trồng răng"]
-                      ];
-                      
-                      // var layCaoRang = false; 
-                      // var hanRang = false; 
-                      // var voRang = false; 
-                      // var sauRang = false; 
-                      // var koVaoTuy = false; 
-
-                      // TIẾP TỤC Ở ĐÂY
-                      logMessage.get(senderId, 86400000, function(cuMessages) {
-                        console.log("ALL MESSAGESSSSSSS:", cuMessages);
-                        var layCaoRang = checkMessage(cuMessages, layCaoRangKW); 
-                        var hanRang = checkMessage(cuMessages, hanRangKW); 
-                        var sauRang = checkMessage(cuMessages, sauRangKW); 
-                        var koVaoTuy = checkMessage(cuMessages, koVaoTuyKW); 
-
-                        // console.log("LAYCAORANG:", layCaoRang);
-                        // console.log("HANRANG:", hanRang);
-                        // console.log("SAURANG:", sauRang);
-                        // console.log("KOVAOTUY:", koVaoTuy);
-
-                        // setTimeout(function(){
-                          if(layCaoRang == true) {
-                            console.log("laycaorang==true");
-                            customersLog.dienThongTinLichKham(senderId, "duration", 180000, function(status){
-                              if(status==false) console.log("ko dc");
-                              console.log("customersLog2", customersLog.getInfo(senderId));
-                              
-                            });
-                          } else if(layCaoRang==false) {
-                            console.log("laycaorang==false");
-                          }
-                        // }, 5000);
-                      });
-                      
-
-
-                      
-                      
+                  /**
+                   * THỜI GIAN KHÁM
+                   */
+                  await xacDinhBenh(senderId, cuMessages);
+                  
 
                     
-                      
-                      
-                    }
                     // else {
                     //   send.sendMessage(senderId, "Bạn bị làm sao nhể?");
                     // }
                     
-                  });
+                  
                   
     
 
 
 
+                    
 
+                  /**
+                   * HỌ VÀ TÊN
+                   */
+                  console.log("HOVATENNNNNNNNNNNN");
+                   customersLog.taoLichKham(senderId, "name", function(status) {
+                    
 
-                  // tên
-                  customersLog.taoLichKham(senderId, "name", function(status) {
                     if(status==true) {
                       var name = text.toUpperCase();
                       var la = name.indexOf("LÀ ");
@@ -293,7 +262,7 @@ app.post('/webhook', async function(req, res) {
                         send.sendMessage(senderId, "Đây có vẻ như không phải tên đầy đủ của bạn. Bạn vui lòng điền lại tên đầy đủ của mình (gồm cả họ và tên).");
                       } else {
                         customersLog.dienThongTinLichKham(senderId, "name", name, function(status){
-                          if(status==false) console.log("ko dc");
+                          if(status==true) summary(senderId);
                         });
                       }
                     }
@@ -305,9 +274,12 @@ app.post('/webhook', async function(req, res) {
   
   
                   
-                  // chi nhánh
+
+                  /**
+                   * CHI NHÁNH
+                   */
+                    console.log("CHINHANHHHHHHHHHHHHH");
                   customersLog.taoLichKham(senderId, "place", function(status) {
-                    console.log("PLACEEEEE_STATUS:", status);
                     if(status==true && typeof message.message.quick_reply != "undefined" 
                         && message.message.quick_reply.payload.split('-').includes('DATLICHKHAM_DD')){
                           var placeKW = message.message.quick_reply.payload.split('-')[1];
@@ -321,7 +293,7 @@ app.post('/webhook', async function(req, res) {
                           };
                           console.log("PLACEEEEEEE:", placeKW);
                           customersLog.dienThongTinLichKham(senderId, "place", places[placeKW], function(status){
-                            if(status==false) console.log("ko dc");
+                            if(status==true) summary(senderId);
                           });                
                         
                     } else {
@@ -364,7 +336,10 @@ app.post('/webhook', async function(req, res) {
   
                   
     
-                  // ngày
+                  /**
+                   * NGÀY
+                   */
+                    console.log("NGAYYYYYYYYYYYYYYYYY");
                   customersLog.taoLichKham(senderId, "date", function(status) {
                     if(status==true) {
                       var inputDate = text.split("/");
@@ -373,7 +348,7 @@ app.post('/webhook', async function(req, res) {
                       if(inputDate.length == 3 && isNaN(myTimestamp) == false) {
                         if(myTimestamp>=Date.now()){
                           customersLog.dienThongTinLichKham(senderId, "date", newDate, function(status){
-                            if(status==false) console.log("ko dc");
+                            if(status==true) summary(senderId);
                           });
                         } else {
                           send.sendMessage(senderId, "Bạn vui lòng nhập 1 ngày trong tương lai.");
@@ -390,8 +365,11 @@ app.post('/webhook', async function(req, res) {
                   });
   
   
-                  // thời gian
-                  customersLog.taoLichKham(senderId, "time", function(status) {
+                  /**
+                   * THỜI GIAN
+                   */
+                  console.log("THOIGIANNNNNNNNNNNNNNNNNNNNN");
+                   customersLog.taoLichKham(senderId, "time", function(status) {
                       
                       var log = customersLog.getInfo(senderId);
                       var tenKhach = log.datlich.name;
@@ -408,18 +386,14 @@ app.post('/webhook', async function(req, res) {
                             var dentist = Object.values(data)[choice-1];
                             console.log("TIMEEEEEEEE:", time);
                             customersLog.dienThongTinLichKham(senderId, "time", time, function(status){
-                              if(status==false) console.log("ko dc");
+                              if(status==true) {
+                                customersLog.dienThongTinLichKham(senderId, "dentist", dentist, function(status){
+                                  if(status==true) summary(senderId);
+                                });
+                              }
+                              
                             });
-                            customersLog.dienThongTinLichKham(senderId, "dentist", dentist, function(status){
-                              if(status==true) send.sendMessage(
-                                senderId, 
-                                "SIDC đã đặt lịch cho bạn:" + "\n" + 
-                                tenKhach + "\n" + 
-                                "Khám tại: " + diaDiem + "\n" + 
-                                "Thời gian: " + ngay+" "+time + "\n" + 
-                                "Bác sĩ: " + dentist + "\n" + 
-                                "Cảm ơn bạn đã chọn SIDC.");
-                            });
+                            
                           } else {
                             // console.log("THOI GIANNNNNNN:", data);
                             var appointments = data;
@@ -442,6 +416,9 @@ app.post('/webhook', async function(req, res) {
                   });
 
 
+                 
+
+
                 }
                 
                 
@@ -454,6 +431,8 @@ app.post('/webhook', async function(req, res) {
             
             
           } 
+
+          // XỬ LÝ DỮ LIỆU GỬI ĐẾN TỪ "NÚT PLAYBACK"
           if(message.postback) {
             var payload = message.postback.payload;
             if(payload == "DATLICHKHAM") {
@@ -490,8 +469,8 @@ app.post('/webhook', async function(req, res) {
                   send.sendMessage(senderId, "Lịch chưa được hủy. Xin bạn vui lòng thử lại.");
                 }
               });
-            } else if(payload == "DATLICHKHAM_KHONGHUY") {
-              send.sendMessage(senderId, "Xin lỗi bạn. Xin vui lòng tiếp tục đặt lịch");
+            } else if(payload == "DATLICHKHAM_TIEPTUC") {
+              send.sendMessage(senderId, "Xin tiếp tục đặt lịch");
             } else if(payload == "CHATVSSOC") {
               send.sendMessage(senderId, "Bây giờ bạn có thể tiếp tục chat với nhân viên chăm sóc khách hàng của SIDC");
             }
@@ -502,7 +481,6 @@ app.post('/webhook', async function(req, res) {
 
 
           // Kiểm tra số trường đã log
-
           console.log("customersLog", customersLog.getInfo(senderId));
 
           
@@ -512,6 +490,7 @@ app.post('/webhook', async function(req, res) {
         
 
       }
+      // STAND BY
       if(typeof entry.standby !== 'undefined') {
         console.log(entry.standby);
       }
@@ -576,22 +555,42 @@ function checkMessage(text, KW) {
  * Thêm dữ liệu vào database
  * @param {@code int} id 
  */
-function guiThongTin(id) {
-  var customer = customersLog.getInfo(id);
-  var phongKham = customer.datlich.place;
-  var tenKhach = customer.datlich.name;
-  var tenBacSi = customer.datlich.dentist;
-  var ngay = customer.datlich.date;
-  var batDau = customer.datlich.time;
-  var thoiLuong = customer.datlich.duration;
-  calendar.luuThongTin(phongKham, tenKhach, tenBacSi, ngay, batDau, thoiLuong, function(data){
-    // 
-  });
+// function guiThongTin(id) {
+//   var customer = customersLog.getInfo(id);
+//   var phongKham = customer.datlich.place;
+//   var tenKhach = customer.datlich.name;
+//   var tenBacSi = customer.datlich.dentist;
+//   var ngay = customer.datlich.date;
+//   var batDau = customer.datlich.time;
+//   var thoiLuong = customer.datlich.duration;
+//   calendar.luuThongTin(phongKham, tenKhach, tenBacSi, ngay, batDau, thoiLuong, function(data){
+//     // 
+//   });
   
+// }
+
+/**
+ * TỔNG KẾT
+ */
+async function summary(id) {
+  console.log("SUMMARYYYYYYYYYY");
+  var datlich = await customersLog.getInfo(id).datlich;
+  if(typeof datlich != 'undefined' && Object.keys(datlich).length==6 && Object.values(datlich).indexOf("")==-1) {
+    console.log("DATLICHHHHHHHHHHHHHHHHHHHHHHHHHHH", Object.keys(datlich).length);
+    send.sendMessage(
+      id, 
+      "SIDC đã đặt lịch cho bạn:" + "\n" + 
+      datlich.name + "\n" + 
+      "Khám tại: " + datlich.place + "\n" + 
+      "Thời gian: " + datlich.date+" "+datlich.time + "\n" + 
+      "Bác sĩ: " + datlich.dentist + "\n" + 
+      "Cảm ơn bạn đã chọn SIDC."
+    );
+  }
 }
 
 /**
- * 
+ * Bỏ dấu tiếng việt
  * @param {@code string} str 
  */
 function bodauTiengViet(str) {
@@ -608,6 +607,10 @@ function bodauTiengViet(str) {
   return str;
 }
 
+/**
+ * Thay thế từ viết tắt
+ * @param {@code string} str 
+ */
 function boVietTat(str) {
   str = str.toLowerCase();
   
@@ -621,6 +624,135 @@ function boVietTat(str) {
 
   return str;
 }
+
+async function timeout(id, ms) {
+  var oldLastAccess = await customersLog.getInfo(id).lastTime;
+  console.log("oldLastAccess", oldLastAccess);
+  return new Promise(resolve => setTimeout(async function() {
+    var newLastAccess = await customersLog.getInfo(id).lastTime;
+    console.log("newLastAccess", newLastAccess);
+    if(oldLastAccess == newLastAccess) {
+      resolve();
+    }
+  }, ms));
+}
+
+// function interval(id) {
+//   return new Promise(resolve => setInterval(async ()=>{
+//     var lastAccess = await customersLog.getInfo(id).lastTime;
+//     console.log("lastAccessssssssssssssssss", lastAccess);
+//     if(lastAccess + 10000 <= Date.now()) {
+//       resolve();
+//     }
+//   }, 1000));
+// }
+
+
+function waitForCustomer(id, callback) {
+  var intervalOfLastAnswer = setInterval(async ()=>{
+    var lastAccess = await customersLog.getInfo(id).lastTime;
+    console.log("lastAccessssssssssssssssss", lastAccess);
+    if(lastAccess + 10000 <= Date.now()) {
+      callback(true);
+      clearInterval(intervalOfLastAnswer);
+    }
+  }, 1000);
+}
+
+function xacDinhBenh(senderId, cuMessages) {
+  customersLog.taoLichKham(senderId, "duration", (status) => {
+    console.log("THOI GIAN KHAMMMMMMMMMMMMMM");
+    
+    if(status==true) {
+      
+      
+      //  timeout(senderId, 10000);
+      waitForCustomer(senderId, function(status){
+
+        if(status==true) {
+          // Từ khóa về triệu chứng
+          var layCaoRangKW = [
+            ["chảy máu"],
+            ["mảng bám"],
+            ["lấy cao"]
+          ];
+
+          var hanRangKW = [
+            ["hàn", "răng"]
+          ];
+          var sauRangKW = [
+            ["có mùi"],
+            ["hôi"]
+          ];
+          var koVaoTuyKW = [
+            ["không buốt"],
+            ["không bị buốt"],
+            ["không hề buốt"],
+            ["không có buốt"]
+          ];
+
+          var nhoRangKW = [
+            ["nhổ răng"]
+          ];
+          var implantKW = [
+            ["trồng răng"]
+          ];
+
+          // Kiểm tra từ khóa trong tin nhắn
+          var nhoRang = checkMessage(cuMessages, nhoRangKW); 
+          var implant = checkMessage(cuMessages, implantKW); 
+          var layCaoRang = checkMessage(cuMessages, layCaoRangKW); 
+          var hanRang = checkMessage(cuMessages, hanRangKW); 
+          var sauRang = checkMessage(cuMessages, sauRangKW); 
+          var koVaoTuy = checkMessage(cuMessages, koVaoTuyKW); 
+
+          // console.log("NHORANG:", nhoRang);
+          // console.log("IMPLANT:", implant);
+          // console.log("LAYCAORANG:", layCaoRang);
+          // console.log("HANRANG:", hanRang);
+          // console.log("SAURANG:", sauRang);
+          // console.log("KOVAOTUY:", koVaoTuy);
+
+          // await setTimeout(function(){
+            if(layCaoRang === true) {
+              send.sendMessage(senderId, "Có vẻ như bạn phải lấy cao răng");
+              customersLog.dienThongTinLichKham(senderId, "duration", 180000, function(status){
+                if(status==true) summary(senderId);
+              });
+            } else if(nhoRang === true) {
+              send.sendMessage(senderId, "Có vẻ như bạn phải nhổ răng");
+              customersLog.dienThongTinLichKham(senderId, "duration", 210000, function(status){
+                if(status==true) summary(senderId);
+              });
+            } else if(implant === true) {
+              send.sendMessage(senderId, "Có vẻ như bạn phải trồng lại răng");
+              customersLog.dienThongTinLichKham(senderId, "duration", 210000, function(status){
+                if(status==true) summary(senderId);
+              });
+            } else if(hanRang === true || (sauRang == true && koVaoTuy == true)) {
+              send.sendMessage(senderId, "Có vẻ như bạn phải hàn răng");
+              customersLog.dienThongTinLichKham(senderId, "duration", 190000, function(status){
+                if(status==true) summary(senderId);
+              });
+            } else {
+              
+            }
+          // }, 5000);
+        }
+        
+
+      });
+
+
+      
+      
+      
+
+
+    }
+  });
+}
+
 
 // // Phát hiện ngôn ngữ
 // language.detect(text, function(err, result) {
